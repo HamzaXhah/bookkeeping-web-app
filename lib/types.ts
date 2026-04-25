@@ -36,4 +36,5 @@ export type ImportResult = {
   skippedDuplicates: number
   aiCategorized: number
   memoryCategorized: number
+  needsReview: number
 }

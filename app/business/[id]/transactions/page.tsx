@@ -81,7 +81,8 @@ function ManageImportsPanel({
     })
     const data = await res.json()
     if (res.ok) {
-      toast.success(`Deleted ${data.deleted} transactions`)
+      const memNote = data.memoryCleared > 0 ? ` · ${data.memoryCleared} memory entries cleared` : ''
+      toast.success(`Deleted ${data.deleted} transactions${memNote}`)
       setSelected(new Set())
       setConfirmOpen(false)
       fetchFiles()
@@ -132,8 +133,8 @@ function ManageImportsPanel({
       )}
       <ConfirmDialog
         open={confirmOpen}
-        title="Delete transactions?"
-        description={`This will permanently delete ${totalSelected} transactions from ${selected.size} CSV file${selected.size > 1 ? 's' : ''}. This cannot be undone.`}
+        title="Permanently delete transactions?"
+        description={`This will permanently delete ${totalSelected} transactions from ${selected.size} CSV file${selected.size > 1 ? 's' : ''}, and clear any merchant memory learned exclusively from those files. Re-importing the same CSV will re-categorize everything fresh via AI. This cannot be undone.`}
         onConfirm={handleDelete}
         onCancel={() => setConfirmOpen(false)}
       />

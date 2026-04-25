@@ -13,6 +13,7 @@ const navLinks = (id: string) => [
   { href: `/business/${id}/import`, label: 'Import' },
   { href: `/business/${id}/pnl`, label: 'P&L' },
   { href: `/business/${id}/categories`, label: 'Categories' },
+  { href: `/business/${id}/memory`, label: 'Memory' },
 ]
 
 export default async function BusinessLayout({

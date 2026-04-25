@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db/client'
 import { transactions, categories, merchantMemory } from '@/lib/db/schema'
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { parseCSV } from '@/lib/csv/parse'
 import { dedupHash } from '@/lib/hash'
 import { normalizeDesc, findMemoryMatch } from '@/lib/memory/match'
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'No valid rows found in CSV' }, { status: 400 })
   }
 
-  // Step 2: Hash and dedup
+  // ── Dedup ────────────────────────────────────────────────────────────────────
   const hashes = parsed.map((r) => dedupHash(businessId, r.date, r.amount, r.description))
   const existingTx = await db
     .select({ dedupHash: transactions.dedupHash })
@@ -44,10 +44,16 @@ export async function POST(req: Request) {
   const skippedDuplicates = parsed.length - newRows.length
 
   if (newRows.length === 0) {
-    return NextResponse.json({ imported: 0, skippedDuplicates, aiCategorized: 0, memoryCategorized: 0 })
+    return NextResponse.json({
+      imported: 0,
+      skippedDuplicates,
+      aiCategorized: 0,
+      memoryCategorized: 0,
+      needsReview: 0,
+    })
   }
 
-  // Step 3: Load categories and memory
+  // ── Load categories and memory ───────────────────────────────────────────────
   const cats = await db.select().from(categories).where(eq(categories.businessId, businessId))
   const catByName = new Map(cats.map((c) => [c.name, c]))
 
@@ -56,7 +62,7 @@ export async function POST(req: Request) {
     .from(merchantMemory)
     .where(eq(merchantMemory.businessId, businessId))
 
-  // Step 4: Memory match
+  // ── Memory match ─────────────────────────────────────────────────────────────
   type RowResolution = { categoryId: string | null; categorizedBy: 'ai' | 'memory' | null }
   const toAI: { index: number; date: string; description: string; amount: number }[] = []
   const resolved = new Map<number, RowResolution>()
@@ -73,21 +79,27 @@ export async function POST(req: Request) {
     }
   }
 
-  // Step 5: AI batch
+  // ── AI batch ─────────────────────────────────────────────────────────────────
   let aiCategorized = 0
   if (toAI.length > 0) {
     const aiResult = await categorizeTransactions(toAI, cats)
     for (const [idx, catName] of aiResult.entries()) {
       const cat = catByName.get(catName)
-      resolved.set(idx, { categoryId: cat?.id ?? null, categorizedBy: 'ai' })
-      aiCategorized++
+      if (cat) {
+        // AI returned a category we recognize → real assignment
+        resolved.set(idx, { categoryId: cat.id, categorizedBy: 'ai' })
+        aiCategorized++
+      }
+      // else: AI returned "Uncategorized" or an unknown name → leave unresolved
     }
   }
 
-  // Step 6: Insert all rows
+  // ── Insert ───────────────────────────────────────────────────────────────────
   const now = Date.now()
+  let needsReview = 0
   const toInsert = newRows.map((row, i) => {
     const res = resolved.get(i)
+    if (!res) needsReview++
     return {
       id: createId(),
       businessId,
@@ -109,5 +121,6 @@ export async function POST(req: Request) {
     skippedDuplicates,
     aiCategorized,
     memoryCategorized,
+    needsReview,
   })
 }
