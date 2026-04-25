@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db/client'
 import { transactions, categories, merchantMemory } from '@/lib/db/schema'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { parseCSV } from '@/lib/csv/parse'
 import { dedupHash } from '@/lib/hash'
 import { normalizeDesc, findMemoryMatch } from '@/lib/memory/match'
@@ -50,7 +50,6 @@ export async function POST(req: Request) {
   // Step 3: Load categories and memory
   const cats = await db.select().from(categories).where(eq(categories.businessId, businessId))
   const catByName = new Map(cats.map((c) => [c.name, c]))
-  const uncategorizedId = null
 
   const memory = await db
     .select()
@@ -58,15 +57,16 @@ export async function POST(req: Request) {
     .where(eq(merchantMemory.businessId, businessId))
 
   // Step 4: Memory match
+  type RowResolution = { categoryId: string | null; categorizedBy: 'ai' | 'memory' | null }
   const toAI: { index: number; date: string; description: string; amount: number }[] = []
-  const resolved: Map<number, string | null> = new Map()
+  const resolved = new Map<number, RowResolution>()
   let memoryCategorized = 0
 
   for (let i = 0; i < newRows.length; i++) {
     const normalized = normalizeDesc(newRows[i].description)
     const memCatId = findMemoryMatch(normalized, memory)
     if (memCatId) {
-      resolved.set(i, memCatId)
+      resolved.set(i, { categoryId: memCatId, categorizedBy: 'memory' })
       memoryCategorized++
     } else {
       toAI.push({ index: i, ...newRows[i] })
@@ -79,24 +79,28 @@ export async function POST(req: Request) {
     const aiResult = await categorizeTransactions(toAI, cats)
     for (const [idx, catName] of aiResult.entries()) {
       const cat = catByName.get(catName)
-      resolved.set(idx, cat?.id ?? uncategorizedId)
+      resolved.set(idx, { categoryId: cat?.id ?? null, categorizedBy: 'ai' })
       aiCategorized++
     }
   }
 
   // Step 6: Insert all rows
   const now = Date.now()
-  const toInsert = newRows.map((row, i) => ({
-    id: createId(),
-    businessId,
-    date: row.date,
-    description: row.description,
-    amount: row.amount,
-    categoryId: resolved.get(i) ?? null,
-    dedupHash: row.hash,
-    sourceFile: file.name,
-    createdAt: now,
-  }))
+  const toInsert = newRows.map((row, i) => {
+    const res = resolved.get(i)
+    return {
+      id: createId(),
+      businessId,
+      date: row.date,
+      description: row.description,
+      amount: row.amount,
+      categoryId: res?.categoryId ?? null,
+      categorizedBy: res?.categorizedBy ?? null,
+      dedupHash: row.hash,
+      sourceFile: file.name,
+      createdAt: now,
+    }
+  })
 
   await db.insert(transactions).values(toInsert)
 

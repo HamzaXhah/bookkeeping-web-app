@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     const cat = catByName.get(catName)
     await db
       .update(transactions)
-      .set({ categoryId: cat?.id ?? null })
+      .set({ categoryId: cat?.id ?? null, categorizedBy: 'ai' })
       .where(eq(transactions.id, txRows[i].id))
   }
 

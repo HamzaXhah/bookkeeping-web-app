@@ -13,11 +13,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!txRows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const tx = txRows[0]
 
-  // Update transaction category and upsert merchant memory in one operation
-  await db.update(transactions).set({ categoryId: categoryId ?? null }).where(eq(transactions.id, id))
+  const catId = categoryId ?? null
 
-  if (categoryId) {
-    const catRows = await db.select().from(categories).where(eq(categories.id, categoryId))
+  await db
+    .update(transactions)
+    .set({ categoryId: catId, categorizedBy: catId ? 'manual' : null })
+    .where(eq(transactions.id, id))
+
+  if (catId) {
+    const catRows = await db.select().from(categories).where(eq(categories.id, catId))
     if (catRows.length) {
       const normalized = normalizeDesc(tx.description)
       const existing = await db
@@ -29,14 +33,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (match) {
         await db
           .update(merchantMemory)
-          .set({ categoryId, updatedAt: Date.now() })
+          .set({ categoryId: catId, updatedAt: Date.now() })
           .where(eq(merchantMemory.id, match.id))
       } else {
         await db.insert(merchantMemory).values({
           id: createId(),
           businessId: tx.businessId,
           normalizedDesc: normalized,
-          categoryId,
+          categoryId: catId,
           updatedAt: Date.now(),
         })
       }

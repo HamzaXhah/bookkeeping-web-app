@@ -26,6 +26,7 @@ export async function GET(req: Request) {
       amount: transactions.amount,
       categoryId: transactions.categoryId,
       categoryName: categories.name,
+      categorizedBy: transactions.categorizedBy,
       sourceFile: transactions.sourceFile,
       createdAt: transactions.createdAt,
     })

@@ -7,6 +7,8 @@ import { CategorySelect } from '@/components/category-select'
 import { DateRangePicker, type DateRange } from '@/components/date-range-picker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from 'sonner'
 import type { Category, Transaction } from '@/lib/types'
 
@@ -21,6 +23,124 @@ function today() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function CategorizationBadge({ by }: { by: Transaction['categorizedBy'] }) {
+  if (!by) return <span className="text-xs text-slate-300">—</span>
+  const map = {
+    ai: { label: 'AI', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
+    memory: { label: 'Memory', cls: 'bg-green-100 text-green-700 border-green-200' },
+    manual: { label: 'Manual', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
+  } as const
+  const { label, cls } = map[by]
+  return (
+    <span className={`inline-block text-xs font-medium px-1.5 py-0.5 rounded border ${cls}`}>
+      {label}
+    </span>
+  )
+}
+
+type SourceFileRow = { sourceFile: string | null; count: number }
+
+function ManageImportsPanel({
+  businessId,
+  onDeleted,
+}: {
+  businessId: string
+  onDeleted: () => void
+}) {
+  const [files, setFiles] = useState<SourceFileRow[]>([])
+  const [selected, setSelected] = useState<Set<string | null>>(new Set())
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  const fetchFiles = useCallback(async () => {
+    setLoading(true)
+    const res = await fetch(`/api/transactions/source-files?businessId=${businessId}`)
+    const data = await res.json()
+    setFiles(data)
+    setLoading(false)
+  }, [businessId])
+
+  useEffect(() => { fetchFiles() }, [fetchFiles])
+
+  function toggle(f: string | null) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      const key = f ?? null
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  async function handleDelete() {
+    const sourceFiles = [...selected]
+    const res = await fetch(`/api/transactions/source-files?businessId=${businessId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceFiles }),
+    })
+    const data = await res.json()
+    if (res.ok) {
+      toast.success(`Deleted ${data.deleted} transactions`)
+      setSelected(new Set())
+      setConfirmOpen(false)
+      fetchFiles()
+      onDeleted()
+    }
+  }
+
+  const totalSelected = files
+    .filter((f) => selected.has(f.sourceFile))
+    .reduce((s, f) => s + f.count, 0)
+
+  if (loading) return <p className="text-slate-400 text-sm">Loading imports…</p>
+  if (files.length === 0) return <p className="text-slate-400 text-sm">No imports yet.</p>
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-slate-500 mb-1">Select CSV files to delete their transactions:</p>
+      {files.map((f) => {
+        const key = f.sourceFile
+        const checked = selected.has(key)
+        return (
+          <label
+            key={f.sourceFile ?? '__none__'}
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${checked ? 'border-red-300 bg-red-50' : 'bg-white hover:bg-slate-50'}`}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => toggle(key)}
+              className="rounded"
+            />
+            <span className="flex-1 text-sm text-slate-700 truncate">
+              {f.sourceFile ?? '(no filename)'}
+            </span>
+            <span className="text-xs text-slate-400 shrink-0">{f.count} rows</span>
+          </label>
+        )
+      })}
+      {selected.size > 0 && (
+        <Button
+          variant="destructive"
+          size="sm"
+          className="w-full mt-1"
+          onClick={() => setConfirmOpen(true)}
+        >
+          Delete {totalSelected} transactions from {selected.size} file{selected.size > 1 ? 's' : ''}
+        </Button>
+      )}
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete transactions?"
+        description={`This will permanently delete ${totalSelected} transactions from ${selected.size} CSV file${selected.size > 1 ? 's' : ''}. This cannot be undone.`}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </div>
+  )
+}
+
 export default function TransactionsPage() {
   const { id } = useParams<{ id: string }>()
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -31,6 +151,7 @@ export default function TransactionsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [recategorizing, setRecategorizing] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [showImports, setShowImports] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -62,7 +183,9 @@ export default function TransactionsPage() {
     if (res.ok) {
       toast.success('Category updated')
       setTransactions((prev) =>
-        prev.map((t) => (t.id === txId ? { ...t, categoryId: catId } : t))
+        prev.map((t) =>
+          t.id === txId ? { ...t, categoryId: catId, categorizedBy: catId ? 'manual' : null } : t
+        )
       )
     }
   }
@@ -95,15 +218,36 @@ export default function TransactionsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-slate-900">Transactions</h1>
-        {selected.size > 0 && (
-          <Button size="sm" onClick={handleRecategorize} disabled={recategorizing}>
-            {recategorizing ? 'Re-categorizing…' : `Re-categorize ${selected.size} with AI`}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowImports((v) => !v)}
+          >
+            {showImports ? 'Hide' : 'Manage imports'}
           </Button>
-        )}
+          {selected.size > 0 && (
+            <Button size="sm" onClick={handleRecategorize} disabled={recategorizing}>
+              {recategorizing
+                ? 'Re-categorizing…'
+                : `Re-categorize ${selected.size} with AI`}
+            </Button>
+          )}
+        </div>
       </div>
 
+      {/* Manage Imports panel */}
+      {showImports && (
+        <div className="border rounded-xl bg-slate-50 p-4">
+          <h2 className="text-sm font-semibold text-slate-700 mb-3">Manage imported CSV files</h2>
+          <ManageImportsPanel businessId={id} onDeleted={fetchData} />
+        </div>
+      )}
+
+      {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
         <DateRangePicker value={dateRange} onChange={(r) => { setDateRange(r); setPage(0) }} />
         <Input
@@ -126,13 +270,14 @@ export default function TransactionsPage() {
                   <th className="text-left px-4 py-2 font-medium text-slate-600">Date</th>
                   <th className="text-left px-4 py-2 font-medium text-slate-600">Description</th>
                   <th className="text-left px-4 py-2 font-medium text-slate-600">Category</th>
+                  <th className="text-left px-4 py-2 font-medium text-slate-600">Source</th>
                   <th className="text-right px-4 py-2 font-medium text-slate-600">Amount</th>
                 </tr>
               </thead>
               <tbody>
                 {paged.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
                       No transactions found
                     </td>
                   </tr>
@@ -148,13 +293,21 @@ export default function TransactionsPage() {
                       />
                     </td>
                     <td className="px-4 py-1.5 text-slate-500 whitespace-nowrap">{t.date}</td>
-                    <td className="px-4 py-1.5 max-w-xs truncate">{t.description}</td>
+                    <td className="px-4 py-1.5 max-w-xs">
+                      <div className="truncate">{t.description}</div>
+                    </td>
                     <td className="px-4 py-1.5">
-                      <CategorySelect
-                        categories={categories}
-                        value={t.categoryId}
-                        onChange={(catId) => handleCategoryChange(t.id, catId)}
-                      />
+                      <div className="flex items-center gap-2">
+                        <CategorySelect
+                          categories={categories}
+                          value={t.categoryId}
+                          onChange={(catId) => handleCategoryChange(t.id, catId)}
+                        />
+                        <CategorizationBadge by={t.categorizedBy} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-1.5 text-slate-400 text-xs max-w-[120px] truncate">
+                      {t.sourceFile ?? '—'}
                     </td>
                     <td className="px-4 py-1.5 text-right">
                       <AmountCell amount={t.amount} />
@@ -167,13 +320,23 @@ export default function TransactionsPage() {
 
           {totalPages > 1 && (
             <div className="flex items-center gap-2 justify-end text-sm">
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+              >
                 Previous
               </Button>
               <span className="text-slate-500">
                 Page {page + 1} of {totalPages}
               </span>
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+              >
                 Next
               </Button>
             </div>

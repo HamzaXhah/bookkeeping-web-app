@@ -19,6 +19,7 @@ export type Transaction = {
   amount: number
   categoryId: string | null
   categoryName?: string | null
+  categorizedBy: 'ai' | 'memory' | 'manual' | null
   sourceFile: string | null
   createdAt: number
 }
