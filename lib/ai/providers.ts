@@ -1,20 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import type { Category } from '@/lib/types'
+import { SYSTEM_PROMPT, buildUserMessage } from './prompt'
 
 type TxInput = { index: number; date: string; description: string; amount: number }
 
-const PROMPT_SYSTEM = `You are a bookkeeping assistant. Classify each transaction into exactly one category from the list provided.
-Return ONLY a JSON array with no extra text or markdown: [{"index": N, "category": "Name"}, ...]
-Use only the exact category names from the list. If uncertain, use "Uncategorized".`
-
-function buildUserMessage(transactions: TxInput[], categories: Category[]): string {
-  const catList = categories.map((c) => `- ${c.name} (${c.kind})`).join('\n')
-  const txList = transactions
-    .map((t) => `${t.index}. [${t.date}] ${t.description} | ${t.amount > 0 ? '+' : ''}${t.amount}`)
-    .join('\n')
-  return `Categories:\n${catList}\n\nTransactions:\n${txList}`
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Response parser — shared across all providers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function parseResponse(text: string, categories: Category[]): Map<number, string> {
   const result = new Map<number, string>()
@@ -32,6 +25,10 @@ function parseResponse(text: string, categories: Category[]): Map<number, string
   return result
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider implementations
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function callAnthropic(
   chunk: TxInput[],
   categories: Category[]
@@ -39,8 +36,8 @@ async function callAnthropic(
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 1024,
-    system: PROMPT_SYSTEM,
+    max_tokens: 2048,
+    system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: buildUserMessage(chunk, categories) }],
   })
   const block = msg.content[0]
@@ -59,18 +56,22 @@ async function callOpenAICompat(
 ): Promise<Map<number, string>> {
   const msg = await client.chat.completions.create({
     model,
-    max_tokens: 1024,
+    max_tokens: 2048,
     messages: [
-      { role: 'system', content: PROMPT_SYSTEM },
+      { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: buildUserMessage(chunk, categories) },
     ],
   })
   return parseResponse(msg.choices[0]?.message?.content ?? '', categories)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider chain — auto-built from available env keys
+// Priority: Anthropic → OpenAI → Qwen → GLM → Minimax
+// ─────────────────────────────────────────────────────────────────────────────
+
 type ProviderDef = {
   name: string
-  envKey: string
   call: (chunk: TxInput[], categories: Category[]) => Promise<Map<number, string>>
 }
 
@@ -78,49 +79,31 @@ function buildProviderChain(): ProviderDef[] {
   const chain: ProviderDef[] = []
 
   if (process.env.ANTHROPIC_API_KEY) {
-    chain.push({ name: 'Anthropic', envKey: 'ANTHROPIC_API_KEY', call: callAnthropic })
+    chain.push({ name: 'Anthropic', call: callAnthropic })
   }
   if (process.env.OPENAI_API_KEY) {
     const client = makeOpenAIClient(undefined, process.env.OPENAI_API_KEY)
-    chain.push({
-      name: 'OpenAI',
-      envKey: 'OPENAI_API_KEY',
-      call: (c, cats) => callOpenAICompat(c, cats, client, 'gpt-4o-mini'),
-    })
+    chain.push({ name: 'OpenAI', call: (c, cats) => callOpenAICompat(c, cats, client, 'gpt-4o-mini') })
   }
   if (process.env.QWEN_API_KEY) {
-    const client = makeOpenAIClient(
-      'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      process.env.QWEN_API_KEY
-    )
-    chain.push({
-      name: 'Qwen',
-      envKey: 'QWEN_API_KEY',
-      call: (c, cats) => callOpenAICompat(c, cats, client, 'qwen-turbo'),
-    })
+    const client = makeOpenAIClient('https://dashscope.aliyuncs.com/compatible-mode/v1', process.env.QWEN_API_KEY)
+    chain.push({ name: 'Qwen', call: (c, cats) => callOpenAICompat(c, cats, client, 'qwen-turbo') })
   }
   if (process.env.GLM_API_KEY) {
-    const client = makeOpenAIClient(
-      'https://open.bigmodel.cn/api/paas/v4/',
-      process.env.GLM_API_KEY
-    )
-    chain.push({
-      name: 'GLM',
-      envKey: 'GLM_API_KEY',
-      call: (c, cats) => callOpenAICompat(c, cats, client, 'glm-4-flash'),
-    })
+    const client = makeOpenAIClient('https://open.bigmodel.cn/api/paas/v4/', process.env.GLM_API_KEY)
+    chain.push({ name: 'GLM', call: (c, cats) => callOpenAICompat(c, cats, client, 'glm-4-flash') })
   }
   if (process.env.MINIMAX_API_KEY) {
     const client = makeOpenAIClient('https://api.minimax.chat/v1', process.env.MINIMAX_API_KEY)
-    chain.push({
-      name: 'Minimax',
-      envKey: 'MINIMAX_API_KEY',
-      call: (c, cats) => callOpenAICompat(c, cats, client, 'MiniMax-Text-01'),
-    })
+    chain.push({ name: 'Minimax', call: (c, cats) => callOpenAICompat(c, cats, client, 'MiniMax-Text-01') })
   }
 
   return chain
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public export — tries each provider in order, falls back on failure
+// ─────────────────────────────────────────────────────────────────────────────
 
 const CHUNK_SIZE = 50
 
@@ -144,7 +127,7 @@ export async function categorizeWithFallback(
     for (const provider of providers) {
       try {
         chunkResult = await provider.call(chunk, categories)
-        break // success
+        break
       } catch (err) {
         console.error(`[AI] Provider ${provider.name} failed, trying next:`, (err as Error).message)
       }
@@ -155,7 +138,6 @@ export async function categorizeWithFallback(
         result.set(idx, cat)
       }
     }
-    // If all providers failed, chunk rows stay unmapped → Uncategorized
   }
 
   return result
