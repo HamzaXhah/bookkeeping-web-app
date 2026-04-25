@@ -14,9 +14,9 @@ import type { Category, Transaction } from '@/lib/types'
 
 const PAGE_SIZE = 50
 
-function startOfMonth() {
+function startOfYear() {
   const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  return `${d.getFullYear()}-01-01`
 }
 
 function today() {
@@ -146,7 +146,7 @@ export default function TransactionsPage() {
   const { id } = useParams<{ id: string }>()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [categories, setCategories] = useState<Category[]>([])
-  const [dateRange, setDateRange] = useState<DateRange>({ from: startOfMonth(), to: today() })
+  const [dateRange, setDateRange] = useState<DateRange>({ from: startOfYear(), to: today() })
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<Set<string>>(new Set())

@@ -111,12 +111,18 @@ ANTHROPIC_API_KEY=sk-ant-...
 # them in the order listed below. If the first provider fails, it moves to the
 # next — no manual intervention needed.
 
-ANTHROPIC_API_KEY=sk-ant-...        # Claude Haiku 4.5
-OPENAI_API_KEY=sk-...               # GPT-4o Mini
+ANTHROPIC_API_KEY=sk-ant-...        # Claude Haiku 4.5 (direct)
+OPENAI_API_KEY=sk-...               # GPT-4o Mini (direct)
+OPENROUTER_API_KEY=sk-or-v1-...     # Multi-model gateway (recommended)
+OPENROUTER_MODEL=openai/gpt-4o-mini # Optional — defaults to gpt-4o-mini
 QWEN_API_KEY=sk-...                 # Qwen Turbo (Alibaba DashScope)
 GLM_API_KEY=...                     # GLM-4 Flash (ZhipuAI)
 MINIMAX_API_KEY=...                 # MiniMax-Text-01
 ```
+
+> **About OpenRouter:** keys starting with `sk-or-` are OpenRouter keys. OpenRouter is a single endpoint that gives you access to dozens of models (GPT-4o, Claude, Llama, Gemini, etc.). Set `OPENROUTER_MODEL` to any model from [openrouter.ai/models](https://openrouter.ai/models) — e.g. `anthropic/claude-haiku-4-5`, `meta-llama/llama-3.3-70b-instruct`, `google/gemini-flash-1.5`. If you accidentally put an `sk-or-` key into `MINIMAX_API_KEY`, the system auto-detects it and routes to OpenRouter anyway.
+
+> **Verifying which providers work:** open the Import page and the "AI provider status" panel pings every configured key in real time, showing which are responding (green) and which are failing (red, with the actual error from the provider).
 
 You only need **one** key. The rest are optional fallbacks.
 
@@ -247,7 +253,7 @@ All transactions from the selected files are permanently removed. This cannot be
 No model selector appears in the UI. The backend detects which API keys are present and builds a priority chain at startup:
 
 ```
-Anthropic  →  OpenAI  →  Qwen  →  GLM  →  Minimax
+Anthropic  →  OpenAI  →  OpenRouter  →  Qwen  →  GLM  →  Minimax
 ```
 
 Only providers whose key is set in `.env.local` are included. During a categorization call, the system tries the first available provider. If it fails (network error, rate limit, bad response), it logs the error and tries the next one. If all fail, affected transactions are saved as Uncategorized and can be re-categorized manually.
@@ -258,11 +264,14 @@ Only providers whose key is set in `.env.local` are included. During a categoriz
 |---|---|---|---|
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-haiku-4-5` | Default SDK |
 | OpenAI | `OPENAI_API_KEY` | `gpt-4o-mini` | Default SDK |
+| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` env var or `openai/gpt-4o-mini` | `https://openrouter.ai/api/v1` |
 | Qwen | `QWEN_API_KEY` | `qwen-turbo` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | GLM | `GLM_API_KEY` | `glm-4-flash` | `https://open.bigmodel.cn/api/paas/v4/` |
 | Minimax | `MINIMAX_API_KEY` | `MiniMax-Text-01` | `https://api.minimax.chat/v1` |
 
-Qwen, GLM, and Minimax all use OpenAI-compatible endpoints, so they require no additional SDK — the `openai` package handles all three.
+OpenAI, OpenRouter, Qwen, GLM, and Minimax all use OpenAI-compatible endpoints, so they require no additional SDK — the `openai` package handles all five.
+
+**Status diagnostics:** the Import page includes an "AI provider status" panel that pings every configured key on page load (and on demand). Each provider shows green (OK + latency) or red (failing + the literal error message from the provider). Use this to verify keys are valid before importing — `GET /api/ai-status` exposes the same data programmatically.
 
 ---
 

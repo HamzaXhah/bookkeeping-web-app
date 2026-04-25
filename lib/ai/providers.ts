@@ -75,7 +75,12 @@ type ProviderDef = {
   call: (chunk: TxInput[], categories: Category[]) => Promise<Map<number, string>>
 }
 
-function buildProviderChain(): ProviderDef[] {
+// Heuristic: detect when a key looks like an OpenRouter key (sk-or-v1-...)
+function looksLikeOpenRouter(key: string | undefined): boolean {
+  return !!key && key.startsWith('sk-or-')
+}
+
+export function buildProviderChain(): ProviderDef[] {
   const chain: ProviderDef[] = []
 
   if (process.env.ANTHROPIC_API_KEY) {
@@ -84,6 +89,19 @@ function buildProviderChain(): ProviderDef[] {
   if (process.env.OPENAI_API_KEY) {
     const client = makeOpenAIClient(undefined, process.env.OPENAI_API_KEY)
     chain.push({ name: 'OpenAI', call: (c, cats) => callOpenAICompat(c, cats, client, 'gpt-4o-mini') })
+  }
+  if (process.env.OPENROUTER_API_KEY) {
+    const client = makeOpenAIClient('https://openrouter.ai/api/v1', process.env.OPENROUTER_API_KEY)
+    chain.push({
+      name: 'OpenRouter',
+      call: (c, cats) =>
+        callOpenAICompat(
+          c,
+          cats,
+          client,
+          process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
+        ),
+    })
   }
   if (process.env.QWEN_API_KEY) {
     const client = makeOpenAIClient('https://dashscope.aliyuncs.com/compatible-mode/v1', process.env.QWEN_API_KEY)
@@ -94,11 +112,66 @@ function buildProviderChain(): ProviderDef[] {
     chain.push({ name: 'GLM', call: (c, cats) => callOpenAICompat(c, cats, client, 'glm-4-flash') })
   }
   if (process.env.MINIMAX_API_KEY) {
-    const client = makeOpenAIClient('https://api.minimax.chat/v1', process.env.MINIMAX_API_KEY)
-    chain.push({ name: 'Minimax', call: (c, cats) => callOpenAICompat(c, cats, client, 'MiniMax-Text-01') })
+    // Auto-detect: a key with sk-or- prefix is an OpenRouter key, not Minimax.
+    if (looksLikeOpenRouter(process.env.MINIMAX_API_KEY)) {
+      const client = makeOpenAIClient('https://openrouter.ai/api/v1', process.env.MINIMAX_API_KEY)
+      chain.push({
+        name: 'OpenRouter (via MINIMAX_API_KEY)',
+        call: (c, cats) =>
+          callOpenAICompat(
+            c,
+            cats,
+            client,
+            process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
+          ),
+      })
+    } else {
+      const client = makeOpenAIClient('https://api.minimax.chat/v1', process.env.MINIMAX_API_KEY)
+      chain.push({ name: 'Minimax', call: (c, cats) => callOpenAICompat(c, cats, client, 'MiniMax-Text-01') })
+    }
   }
 
   return chain
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Health check — pings each configured provider with a tiny request
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ProviderStatus = {
+  name: string
+  ok: boolean
+  error?: string
+  latencyMs?: number
+}
+
+export async function checkProviderHealth(): Promise<ProviderStatus[]> {
+  const providers = buildProviderChain()
+  if (providers.length === 0) return []
+
+  // A trivial request to validate auth & connectivity. We use a 1-row
+  // categorize call so the actual model + endpoint is exercised.
+  const probeTx = [{ index: 0, date: '2026-01-01', description: 'TEST', amount: -1 }]
+  const probeCats: Category[] = [
+    { id: 'p', businessId: 'p', name: 'Software', kind: 'expense' },
+  ]
+
+  return Promise.all(
+    providers.map(async (p) => {
+      const t0 = Date.now()
+      try {
+        await p.call(probeTx, probeCats)
+        return { name: p.name, ok: true, latencyMs: Date.now() - t0 }
+      } catch (err) {
+        return {
+          name: p.name,
+          ok: false,
+          error: (err as Error).message?.slice(0, 200) ?? 'unknown error',
+          latencyMs: Date.now() - t0,
+        }
+      }
+    })
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

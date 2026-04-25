@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,90 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import type { ImportResult } from '@/lib/types'
+
+type ProviderStatus = {
+  name: string
+  ok: boolean
+  error?: string
+  latencyMs?: number
+}
+
+function AIStatusPanel() {
+  const [statuses, setStatuses] = useState<ProviderStatus[] | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  async function fetchStatus() {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/ai-status')
+      const data = await res.json()
+      setStatuses(data.providers)
+    } catch {
+      setStatuses([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchStatus() }, [])
+
+  const anyOk = statuses?.some((p) => p.ok)
+  const allDown = statuses && statuses.length > 0 && !anyOk
+  const noProviders = statuses?.length === 0
+
+  return (
+    <div className="rounded-lg border bg-white px-4 py-3 text-sm">
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-semibold text-slate-800">AI provider status</span>
+        <button
+          onClick={fetchStatus}
+          disabled={loading}
+          className="text-xs text-slate-500 hover:text-slate-800 underline"
+        >
+          {loading ? 'Checking…' : 'Re-check'}
+        </button>
+      </div>
+
+      {loading && !statuses ? (
+        <p className="text-slate-400 text-xs">Pinging configured providers…</p>
+      ) : noProviders ? (
+        <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          No API keys configured in .env.local. Add at least one (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, etc.) and restart the dev server.
+        </div>
+      ) : allDown ? (
+        <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2">
+          ⚠ All configured providers are failing. Imports will leave every transaction as &ldquo;needs review&rdquo;.
+        </div>
+      ) : null}
+
+      {statuses && statuses.length > 0 && (
+        <ul className="space-y-1">
+          {statuses.map((p) => (
+            <li key={p.name} className="flex items-start gap-2 text-xs">
+              <span
+                className={`mt-1 size-2 shrink-0 rounded-full ${p.ok ? 'bg-green-500' : 'bg-red-500'}`}
+                aria-hidden
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-slate-800">{p.name}</span>
+                  <span className={p.ok ? 'text-green-700' : 'text-red-700'}>
+                    {p.ok ? `OK${p.latencyMs ? ` · ${p.latencyMs}ms` : ''}` : 'failing'}
+                  </span>
+                </div>
+                {!p.ok && p.error && (
+                  <p className="text-red-600 truncate font-mono mt-0.5" title={p.error}>
+                    {p.error}
+                  </p>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 function ResultModal({
   open,
@@ -194,6 +278,8 @@ export default function ImportPage() {
           Upload a bank or credit card CSV to import transactions.
         </p>
       </div>
+
+      <AIStatusPanel />
 
       <div
         className="border-2 border-dashed rounded-xl p-10 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors"
