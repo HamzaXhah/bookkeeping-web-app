@@ -12,7 +12,7 @@ import type { Category } from '@/lib/types'
 type Props = {
   categories: Category[]
   value: string | null
-  onChange: (categoryId: string) => void
+  onChange: (categoryId: string | null) => void
   placeholder?: string
 }
 
@@ -21,7 +21,7 @@ export function CategorySelect({ categories, value, onChange, placeholder = 'Unc
   const expenses = categories.filter((c) => c.kind === 'expense')
 
   return (
-    <Select value={value ?? ''} onValueChange={onChange}>
+    <Select value={value ?? ''} onValueChange={(v) => onChange(v)}>
       <SelectTrigger className="w-48 h-8 text-sm">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

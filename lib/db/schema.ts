@@ -30,6 +30,7 @@ export const transactions = sqliteTable(
     description: text('description').notNull(),
     amount: real('amount').notNull(),
     categoryId: text('category_id').references(() => categories.id, { onDelete: 'set null' }),
+    categorizedBy: text('categorized_by', { enum: ['ai', 'memory', 'manual'] }),
     dedupHash: text('dedup_hash').notNull(),
     sourceFile: text('source_file'),
     createdAt: integer('created_at').notNull(),

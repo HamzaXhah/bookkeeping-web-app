@@ -52,8 +52,8 @@ export default function TransactionsPage() {
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
 
-  async function handleCategoryChange(txId: string, categoryId: string) {
-    const catId = categoryId === '__none__' ? null : categoryId
+  async function handleCategoryChange(txId: string, categoryId: string | null) {
+    const catId = !categoryId || categoryId === '__none__' ? null : categoryId
     const res = await fetch(`/api/transactions/${txId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

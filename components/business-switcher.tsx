@@ -19,7 +19,7 @@ export function BusinessSwitcher({ businesses, currentId }: Props) {
   const router = useRouter()
 
   return (
-    <Select value={currentId} onValueChange={(id) => router.push(`/business/${id}`)}>
+    <Select value={currentId} onValueChange={(id) => id && router.push(`/business/${id}`)}>
       <SelectTrigger className="w-48 h-8 text-sm font-medium">
         <SelectValue />
       </SelectTrigger>
