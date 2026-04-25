@@ -5,7 +5,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '@/components/ui/select'
 import type { Category } from '@/lib/types'
 
@@ -20,10 +19,13 @@ export function CategorySelect({ categories, value, onChange, placeholder = 'Unc
   const income = categories.filter((c) => c.kind === 'income')
   const expenses = categories.filter((c) => c.kind === 'expense')
 
+  const selected = value ? categories.find((c) => c.id === value) : null
+  const displayLabel = selected ? selected.name : placeholder
+
   return (
     <Select value={value ?? ''} onValueChange={(v) => onChange(v)}>
       <SelectTrigger className="w-48 h-8 text-sm">
-        <SelectValue placeholder={placeholder} />
+        <span className="truncate">{displayLabel}</span>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="__none__">Uncategorized</SelectItem>

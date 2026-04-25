@@ -10,7 +10,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
@@ -152,7 +151,7 @@ export default function CategoriesPage() {
           />
           <Select value={newKind} onValueChange={(v) => setNewKind(v as 'income' | 'expense')}>
             <SelectTrigger className="w-32">
-              <SelectValue />
+              <span>{newKind === 'income' ? 'Income' : 'Expense'}</span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="income">Income</SelectItem>
