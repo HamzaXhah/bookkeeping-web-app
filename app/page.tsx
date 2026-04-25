@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { db } from '@/lib/db/client'
 import { businesses } from '@/lib/db/schema'
 import { desc } from 'drizzle-orm'
@@ -10,6 +11,8 @@ runMigrations()
 export default async function RootPage() {
   const all = await db.select().from(businesses).orderBy(desc(businesses.createdAt))
 
+  // Single business: jump straight in. Users can still reach /businesses
+  // via the switcher dropdown to manage all businesses.
   if (all.length === 1) {
     redirect(`/business/${all[0].id}`)
   }
@@ -24,15 +27,23 @@ export default async function RootPage() {
 
         {all.length > 1 && (
           <div className="space-y-2">
-            <h2 className="text-sm font-medium text-slate-700">Your businesses</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-slate-700">Your businesses</h2>
+              <Link
+                href="/businesses"
+                className="text-xs text-slate-500 hover:text-slate-800 underline"
+              >
+                Manage
+              </Link>
+            </div>
             {all.map((b) => (
-              <a
+              <Link
                 key={b.id}
                 href={`/business/${b.id}`}
                 className="block p-3 rounded-lg border bg-white hover:bg-slate-50 text-slate-800 font-medium transition-colors"
               >
                 {b.name}
-              </a>
+              </Link>
             ))}
           </div>
         )}
