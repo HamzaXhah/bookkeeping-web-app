@@ -7,9 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { PnLReport } from '@/lib/types'
 
-function startOfMonth() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+function startOfYear() {
+  return `${new Date().getFullYear()}-01-01`
 }
 
 function today() {
@@ -21,7 +20,7 @@ const fmt = (n: number) =>
 
 export default function PnLPage() {
   const { id } = useParams<{ id: string }>()
-  const [dateRange, setDateRange] = useState<DateRange>({ from: startOfMonth(), to: today() })
+  const [dateRange, setDateRange] = useState<DateRange>({ from: startOfYear(), to: today() })
   const [report, setReport] = useState<PnLReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [bizName, setBizName] = useState('')
